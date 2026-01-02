@@ -25,6 +25,7 @@ tuimux
 - `r` refresh
 - `Enter` attach/switch to the selected session
 - `n` new session
+- `e` rename selected session
 - `c` new window in the selected session
 - `x` kill selected session
 - `d` kill selected window

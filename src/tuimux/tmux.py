@@ -137,6 +137,9 @@ class TmuxClient:
     def kill_window(self, window_id: str) -> None:
         self._run(["kill-window", "-t", window_id])
 
+    def rename_session(self, name: str, new_name: str) -> None:
+        self._run(["rename-session", "-t", name, new_name])
+
     def attach(self, session_name: str) -> None:
         self._run(["attach", "-t", session_name])
 

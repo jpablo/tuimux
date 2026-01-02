@@ -146,6 +146,7 @@ class TuimuxApp(App):
         ("r", "refresh", "Refresh"),
         ("enter", "attach", "Attach/Switch"),
         ("n", "new_session", "New Session"),
+        ("e", "rename_session", "Rename Session"),
         ("c", "new_window", "New Window"),
         ("x", "kill_session", "Kill Session"),
         ("d", "kill_window", "Kill Window"),
@@ -315,36 +316,71 @@ class TuimuxApp(App):
         except TmuxError as exc:
             self.set_status(str(exc), error=True)
 
-    async def action_new_session(self) -> None:
-        result = await self.push_screen_wait(
-            PromptScreen("New session name", placeholder="work")
-        )
-        if not result:
-            return
-        try:
-            self._client.new_session(result)
-        except TmuxError as exc:
-            self.set_status(str(exc), error=True)
-            return
-        self.refresh_data()
+    def action_new_session(self) -> None:
+        async def handle_result(result: Optional[str]) -> None:
+            if not result:
+                return
+            try:
+                self._client.new_session(result)
+            except TmuxError as exc:
+                self.set_status(str(exc), error=True)
+                return
+            self.refresh_data()
 
-    async def action_new_window(self) -> None:
+        self.push_screen(
+            PromptScreen("New session name", placeholder="work"),
+            callback=handle_result,
+        )
+
+    def action_rename_session(self) -> None:
+        session = self.get_selected_session()
+        if not session:
+            self.set_status("Select a session to rename.", error=True)
+            return
+
+        async def handle_result(result: Optional[str]) -> None:
+            if not result:
+                return
+            if result == session.name:
+                self.set_status("Session name unchanged.")
+                return
+            try:
+                self._client.rename_session(session.name, result)
+            except TmuxError as exc:
+                self.set_status(str(exc), error=True)
+                return
+            self.refresh_data()
+
+        self.push_screen(
+            PromptScreen(
+                "Rename session",
+                placeholder="new-name",
+                value=session.name,
+            ),
+            callback=handle_result,
+        )
+
+    def action_new_window(self) -> None:
         session = self.get_selected_session()
         if not session:
             self.set_status("Select a session first.", error=True)
             return
-        result = await self.push_screen_wait(
-            PromptScreen("New window name", placeholder="shell", allow_empty=True)
+
+        async def handle_result(result: Optional[str]) -> None:
+            if result is None:
+                return
+            try:
+                name = result or None
+                self._client.new_window(session.name, name)
+            except TmuxError as exc:
+                self.set_status(str(exc), error=True)
+                return
+            self.request_windows_load(session.name, force=True, immediate=True)
+
+        self.push_screen(
+            PromptScreen("New window name", placeholder="shell", allow_empty=True),
+            callback=handle_result,
         )
-        if result is None:
-            return
-        try:
-            name = result or None
-            self._client.new_window(session.name, name)
-        except TmuxError as exc:
-            self.set_status(str(exc), error=True)
-            return
-        self.request_windows_load(session.name, force=True, immediate=True)
 
     def action_kill_session(self) -> None:
         session = self.get_selected_session()
