@@ -146,6 +146,7 @@ class TuimuxApp(App):
         self._client = TmuxClient()
         self._sessions: list[Session] = []
         self._windows: list[Window] = []
+        self._current_session: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -164,6 +165,7 @@ class TuimuxApp(App):
         self.query_one("#sessions", ListView).focus()
 
     def refresh_data(self) -> None:
+        self._current_session = None
         try:
             self._sessions = self._client.list_sessions()
         except TmuxError as exc:
@@ -182,18 +184,21 @@ class TuimuxApp(App):
 
     def update_lists(self) -> None:
         sessions_view = self.query_one("#sessions", ListView)
-        sessions_view.clear()
-        for session in self._sessions:
-            sessions_view.append(SessionItem(session))
+        windows_view = self.query_one("#windows", ListView)
 
-        if self._sessions:
-            sessions_view.index = 0
-            self.load_windows(self._sessions[0].name)
-        else:
-            windows_view = self.query_one("#windows", ListView)
-            windows_view.clear()
+        with self.batch_update():
+            sessions_view.clear()
+            sessions_view.extend(SessionItem(session) for session in self._sessions)
 
-    def load_windows(self, session_name: str) -> None:
+            if self._sessions:
+                sessions_view.index = 0
+            else:
+                windows_view.clear()
+
+    def load_windows(self, session_name: str, force: bool = False) -> None:
+        if not force and session_name == self._current_session:
+            return
+        self._current_session = session_name
         try:
             self._windows = self._client.list_windows(session_name)
         except TmuxError as exc:
@@ -206,11 +211,11 @@ class TuimuxApp(App):
 
     def update_windows_list(self) -> None:
         windows_view = self.query_one("#windows", ListView)
-        windows_view.clear()
-        for window in self._windows:
-            windows_view.append(WindowItem(window))
-        if self._windows:
-            windows_view.index = 0
+        with self.batch_update():
+            windows_view.clear()
+            windows_view.extend(WindowItem(window) for window in self._windows)
+            if self._windows:
+                windows_view.index = 0
 
     def get_selected_session(self) -> Session | None:
         sessions_view = self.query_one("#sessions", ListView)
@@ -287,7 +292,7 @@ class TuimuxApp(App):
         except TmuxError as exc:
             self.set_status(str(exc), error=True)
             return
-        self.load_windows(session.name)
+        self.load_windows(session.name, force=True)
 
     def action_kill_session(self) -> None:
         session = self.get_selected_session()
@@ -313,7 +318,7 @@ class TuimuxApp(App):
             return
         session = self.get_selected_session()
         if session:
-            self.load_windows(session.name)
+            self.load_windows(session.name, force=True)
 
     def on_key(self, event: Key) -> None:
         if event.key == "tab":
