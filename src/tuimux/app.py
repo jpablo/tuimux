@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Vertical
 from textual.events import Key
 from textual.screen import ModalScreen
+from textual.timer import Timer
+from textual.worker import Worker, WorkerState
 from textual.widgets import Footer, Header, Input, ListItem, ListView, Static
 
 from tuimux.tmux import Session, TmuxClient, TmuxError, Window
@@ -63,6 +66,13 @@ class PromptScreen(ModalScreen[Optional[str]]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+@dataclass(frozen=True)
+class _WindowsLoadResult:
+    request_id: int
+    session_name: str
+    windows: list[Window]
 
 
 class TuimuxApp(App):
@@ -147,6 +157,10 @@ class TuimuxApp(App):
         self._sessions: list[Session] = []
         self._windows: list[Window] = []
         self._current_session: str | None = None
+        self._windows_load_timer: Timer | None = None
+        self._pending_windows_session: str | None = None
+        self._pending_windows_force: bool = False
+        self._windows_request_id: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -180,7 +194,7 @@ class TuimuxApp(App):
             self.set_status("No tmux sessions found.")
         else:
             self.set_status("Loaded tmux sessions.")
-        self.update_lists()
+            self.update_lists()
 
     def update_lists(self) -> None:
         sessions_view = self.query_one("#sessions", ListView)
@@ -195,26 +209,64 @@ class TuimuxApp(App):
             else:
                 windows_view.clear()
 
-    def load_windows(self, session_name: str, force: bool = False) -> None:
+    def request_windows_load(
+        self, session_name: str, *, force: bool = False, immediate: bool = False
+    ) -> None:
+        """Request a windows refresh for a given session.
+
+        When navigating sessions quickly we debounce the tmux call to avoid
+        thrashing the UI with rapid clear/mount cycles (which can look like flicker).
+        """
+        self._pending_windows_session = session_name
+        self._pending_windows_force = self._pending_windows_force or force
+
+        if self._windows_load_timer is not None:
+            self._windows_load_timer.stop()
+            self._windows_load_timer = None
+
+        delay = 0.0 if immediate else 0.08
+        self._windows_load_timer = self.set_timer(delay, self._start_windows_load)
+
+    def _start_windows_load(self) -> None:
+        session_name = self._pending_windows_session
+        if session_name is None:
+            return
+        force = self._pending_windows_force
+        self._pending_windows_force = False
+
+        selected = self.get_selected_session()
+        if selected is None or selected.name != session_name:
+            return
+
         if not force and session_name == self._current_session:
             return
-        self._current_session = session_name
-        try:
-            self._windows = self._client.list_windows(session_name)
-        except TmuxError as exc:
-            self._windows = []
-            self.set_status(str(exc), error=True)
-            self.update_windows_list()
-            return
 
-        self.update_windows_list()
+        self._windows_request_id += 1
+        request_id = self._windows_request_id
 
-    def update_windows_list(self) -> None:
+        def work() -> _WindowsLoadResult:
+            return _WindowsLoadResult(
+                request_id=request_id,
+                session_name=session_name,
+                windows=self._client.list_windows(session_name),
+            )
+
+        self.run_worker(
+            work,
+            name=f"windows:{request_id}",
+            group="windows",
+            description=session_name,
+            exclusive=True,
+            thread=True,
+            exit_on_error=False,
+        )
+
+    async def update_windows_list(self) -> None:
         windows_view = self.query_one("#windows", ListView)
         with self.batch_update():
-            windows_view.clear()
-            windows_view.extend(WindowItem(window) for window in self._windows)
+            await windows_view.clear()
             if self._windows:
+                await windows_view.extend(WindowItem(window) for window in self._windows)
                 windows_view.index = 0
 
     def get_selected_session(self) -> Session | None:
@@ -241,7 +293,7 @@ class TuimuxApp(App):
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if event.list_view.id == "sessions" and isinstance(event.item, SessionItem):
-            self.load_windows(event.item.session.name)
+            self.request_windows_load(event.item.session.name)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.list_view.id == "sessions":
@@ -292,7 +344,7 @@ class TuimuxApp(App):
         except TmuxError as exc:
             self.set_status(str(exc), error=True)
             return
-        self.load_windows(session.name, force=True)
+        self.request_windows_load(session.name, force=True, immediate=True)
 
     def action_kill_session(self) -> None:
         session = self.get_selected_session()
@@ -318,7 +370,7 @@ class TuimuxApp(App):
             return
         session = self.get_selected_session()
         if session:
-            self.load_windows(session.name, force=True)
+            self.request_windows_load(session.name, force=True, immediate=True)
 
     def on_key(self, event: Key) -> None:
         if event.key == "tab":
@@ -329,6 +381,46 @@ class TuimuxApp(App):
             else:
                 sessions.focus()
             event.prevent_default()
+
+    async def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.worker.group != "windows":
+            return
+
+        if event.state == WorkerState.SUCCESS:
+            result = event.worker.result
+            if not isinstance(result, _WindowsLoadResult):
+                return
+            if result.request_id != self._windows_request_id:
+                return
+            selected = self.get_selected_session()
+            if selected is None or selected.name != result.session_name:
+                return
+            self._current_session = result.session_name
+            self._windows = result.windows
+            await self.update_windows_list()
+            return
+
+        if event.state == WorkerState.ERROR:
+            name = event.worker.name
+            if not name.startswith("windows:"):
+                return
+            try:
+                request_id = int(name.split(":", 1)[1])
+            except ValueError:
+                return
+            if request_id != self._windows_request_id:
+                return
+            selected = self.get_selected_session()
+            if selected is None or selected.name != event.worker.description:
+                return
+            error = event.worker.error
+            if isinstance(error, TmuxError):
+                self.set_status(str(error), error=True)
+            elif error is not None:
+                self.set_status(str(error), error=True)
+            self._current_session = event.worker.description
+            self._windows = []
+            await self.update_windows_list()
 
 
 def main() -> None:
