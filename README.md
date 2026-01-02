@@ -33,4 +33,5 @@ tuimux
 - `d` kill selected window
 - `v` enter copy mode (inside tmux)
 - `y` copy tmux buffer to clipboard
+- `p` preview selected session output
 - `q` quit

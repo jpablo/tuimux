@@ -153,6 +153,18 @@ class TmuxClient:
     def show_buffer(self) -> str:
         return self._run(["show-buffer"])
 
+    def capture_window(self, window_id: str, lines: int = 200) -> str:
+        return self._run(
+            [
+                "capture-pane",
+                "-t",
+                window_id,
+                "-p",
+                "-S",
+                f"-{lines}",
+            ]
+        )
+
     def attach(self, session_name: str) -> None:
         self._run(["attach", "-t", session_name])
 

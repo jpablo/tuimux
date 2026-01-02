@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.command import DiscoveryHit, Hit, Provider
-from textual.containers import Container, Vertical
+from textual.containers import Container, Vertical, VerticalScroll
 from textual.events import Key
 from textual.screen import ModalScreen
 from textual.timer import Timer
@@ -72,6 +72,7 @@ class TuimuxCommandsProvider(Provider):
             ("Kill window", "Kill the selected window.", app.action_kill_window),
             ("Copy mode", "Enter tmux copy mode (inside tmux).", app.action_copy_mode),
             ("Copy selection", "Copy the tmux buffer to the clipboard.", app.action_copy_selection),
+            ("Peek session", "Preview the selected session output.", app.action_peek_session),
             ("Help", "Open the help screen.", app.action_help),
         ]
 
@@ -193,6 +194,7 @@ class HelpScreen(ModalScreen[None]):
         "- d: Kill selected window.\n"
         "- v: Enter copy mode (inside tmux).\n"
         "- y: Copy tmux buffer to clipboard.\n"
+        "- p: Preview selected session.\n"
         "- q: Quit.\n"
         "\n"
         "Learn more\n"
@@ -203,6 +205,32 @@ class HelpScreen(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Container(id="help"):
             yield Static(self.HELP_TEXT, id="help-text")
+
+    def action_dismiss(self) -> None:
+        self.dismiss(None)
+
+
+class PeekScreen(ModalScreen[None]):
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+        ("q", "dismiss", "Close"),
+        ("enter", "dismiss", "Close"),
+        ("p", "dismiss", "Close"),
+    ]
+
+    def __init__(self, title: str, content: str) -> None:
+        super().__init__()
+        self._title = title
+        self._content = content
+
+    def compose(self) -> ComposeResult:
+        with Container(id="peek"):
+            yield Static(self._title, id="peek-title")
+            with VerticalScroll(id="peek-body"):
+                yield Static(self._content, id="peek-text")
+
+    def on_mount(self) -> None:
+        self.query_one("#peek-body", VerticalScroll).focus()
 
     def action_dismiss(self) -> None:
         self.dismiss(None)
@@ -308,6 +336,30 @@ class TuimuxApp(App):
         color: #7b8aa1;
     }
 
+    #peek {
+        width: 90%;
+        max-width: 120;
+        height: 80%;
+        padding: 2;
+        border: heavy #8bd5ff;
+        background: #0f141b;
+    }
+
+    #peek-title {
+        margin-bottom: 1;
+        text-style: bold;
+    }
+
+    #peek-body {
+        height: 1fr;
+        border: tall #1b2533;
+        padding: 1;
+    }
+
+    #peek-text {
+        color: #c6d2e3;
+    }
+
     #help {
         width: 80%;
         max-width: 90;
@@ -334,6 +386,7 @@ class TuimuxApp(App):
         ("d", "kill_window", "Kill Window"),
         ("v", "copy_mode", "Copy Mode"),
         ("y", "copy_selection", "Copy Selection"),
+        ("p", "peek_session", "Peek Session"),
     ]
 
     def __init__(self) -> None:
@@ -527,6 +580,36 @@ class TuimuxApp(App):
         session = self.get_selected_session()
         if session:
             self.request_windows_load(session.name, force=True, immediate=True)
+
+    def _peek_window(self) -> Window | None:
+        window = self.get_selected_window()
+        if window:
+            return window
+        for candidate in self._windows:
+            if candidate.active:
+                return candidate
+        if self._windows:
+            return self._windows[0]
+        return None
+
+    def action_peek_session(self) -> None:
+        session = self.get_selected_session()
+        if not session:
+            self.set_status("Select a session to preview.", error=True)
+            return
+        window = self._peek_window()
+        if not window:
+            self.set_status("No windows available to preview.", error=True)
+            return
+        try:
+            output = self._client.capture_window(window.id)
+        except TmuxError as exc:
+            self.set_status(str(exc), error=True)
+            return
+        if not output:
+            output = "(No output captured.)"
+        title = f"Preview: {session.name} • {window.index}: {window.name}"
+        self.push_screen(PeekScreen(title, output))
 
     def action_copy_mode(self) -> None:
         if not self._client.inside_tmux:
