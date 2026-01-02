@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.command import DiscoveryHit, Hit, Provider
 from textual.containers import Container, Vertical
 from textual.events import Key
 from textual.screen import ModalScreen
@@ -41,6 +42,35 @@ class WindowItem(ListItem):
         text = f"{marker} {window.index}: {window.name}"
         super().__init__(Static(text))
         self.window = window
+
+
+class TuimuxCommandsProvider(Provider):
+    def _commands(self) -> list[tuple[str, str, Callable[[], object]]]:
+        app = self.app
+        return [
+            (
+                "Attach / switch session",
+                "Attach to the selected session (detach with Ctrl-b d).",
+                app.action_attach,
+            ),
+            ("Refresh", "Reload sessions and windows.", app.action_refresh),
+            ("New session", "Create a new tmux session.", app.action_new_session),
+            ("Rename session", "Rename the selected session.", app.action_rename_session),
+            ("New window", "Create a new window in the selected session.", app.action_new_window),
+            ("Kill session", "Kill the selected session.", app.action_kill_session),
+            ("Kill window", "Kill the selected window.", app.action_kill_window),
+            ("Help", "Open the help screen.", app.action_help),
+        ]
+
+    async def discover(self):
+        for name, help_text, callback in self._commands():
+            yield DiscoveryHit(name, callback, help=help_text)
+
+    async def search(self, query: str):
+        matcher = self.matcher(query)
+        for name, help_text, callback in self._commands():
+            if (match := matcher.match(name)) > 0:
+                yield Hit(match, matcher.highlight(name), callback, help=help_text)
 
 
 class PromptScreen(ModalScreen[Optional[str]]):
@@ -159,6 +189,8 @@ class _WindowsLoadResult:
 
 
 class TuimuxApp(App):
+    COMMANDS = App.COMMANDS | {TuimuxCommandsProvider}
+
     CSS = """
     Screen {
         background: #0b0f14;
