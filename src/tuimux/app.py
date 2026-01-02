@@ -71,6 +71,44 @@ class PromptScreen(ModalScreen[Optional[str]]):
         self.dismiss(None)
 
 
+class HelpScreen(ModalScreen[None]):
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+        ("q", "dismiss", "Close"),
+        ("enter", "dismiss", "Close"),
+    ]
+
+    HELP_TEXT = (
+        "Tuimux Help\n"
+        "\n"
+        "Basics\n"
+        "- Session: A running tmux environment with its own windows.\n"
+        "- Window: A tab inside a session; each window can hold panes.\n"
+        "- Attached: A session currently connected to a tmux client.\n"
+        "\n"
+        "Navigation\n"
+        "- Up/Down: Move through the list.\n"
+        "- Tab: Switch focus between Sessions and Windows.\n"
+        "- Enter: Attach/switch to the selected session.\n"
+        "\n"
+        "Actions\n"
+        "- r: Refresh sessions/windows.\n"
+        "- n: New session.\n"
+        "- e: Rename selected session.\n"
+        "- c: New window in selected session.\n"
+        "- x: Kill selected session.\n"
+        "- d: Kill selected window.\n"
+        "- q: Quit.\n"
+    )
+
+    def compose(self) -> ComposeResult:
+        with Container(id="help"):
+            yield Static(self.HELP_TEXT, id="help-text")
+
+    def action_dismiss(self) -> None:
+        self.dismiss(None)
+
+
 @dataclass(frozen=True)
 class _WindowsLoadResult:
     request_id: int
@@ -142,6 +180,18 @@ class TuimuxApp(App):
         margin-bottom: 1;
         text-style: bold;
     }
+
+    #help {
+        width: 80%;
+        max-width: 90;
+        padding: 2;
+        border: heavy #8bd5ff;
+        background: #0f141b;
+    }
+
+    #help-text {
+        color: #c6d2e3;
+    }
     """
 
     BINDINGS = [
@@ -150,6 +200,7 @@ class TuimuxApp(App):
         ("enter", "attach", "Attach/Switch"),
         ("n", "new_session", "New Session"),
         ("e", "rename_session", "Rename Session"),
+        ("h", "help", "Help"),
         ("c", "new_window", "New Window"),
         ("x", "kill_session", "Kill Session"),
         ("d", "kill_window", "Kill Window"),
@@ -305,6 +356,9 @@ class TuimuxApp(App):
 
     def action_refresh(self) -> None:
         self.refresh_data()
+
+    def action_help(self) -> None:
+        self.push_screen(HelpScreen())
 
     def action_attach(self) -> None:
         session = self.get_selected_session()
