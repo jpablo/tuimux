@@ -16,9 +16,13 @@ from tuimux.tmux import Session, TmuxClient, TmuxError, Window
 
 class SessionItem(ListItem):
     def __init__(self, session: Session) -> None:
-        text = f"{session.name}  ({session.windows})"
+        windows_label = "window" if session.windows == 1 else "windows"
+        parts = [f"{session.name}: {session.windows} {windows_label}"]
+        if session.created:
+            parts.append(f"(created {session.created})")
         if session.attached:
-            text = f"{text}  *"
+            parts.append("(attached)")
+        text = " ".join(parts)
         super().__init__(Static(text))
         self.session = session
 
