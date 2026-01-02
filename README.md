@@ -4,6 +4,22 @@ A modern TUI for tmux built with Textual.
 
 ## Quick start
 
+## Install
+
+Requires `tmux` on PATH.
+
+```bash
+python -m pip install "tuimux @ git+https://github.com/jpablo/tuimux.git" && tuimux
+```
+
+Or with `uv`:
+
+```bash
+uv pip install "tuimux @ git+https://github.com/jpablo/tuimux.git" && tuimux
+```
+
+## Development
+
 ```bash
 uv venv .venv
 source .venv/bin/activate
