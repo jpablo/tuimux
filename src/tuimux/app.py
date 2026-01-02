@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Vertical
 from textual.events import Key
 from textual.screen import ModalScreen
@@ -12,6 +13,14 @@ from textual.worker import Worker, WorkerState
 from textual.widgets import Footer, Header, Input, ListItem, ListView, Static
 
 from tuimux.tmux import Session, TmuxClient, TmuxError, Window
+
+
+class SessionsListView(ListView):
+    BINDINGS = [
+        Binding("enter", "select_cursor", "Attach/Switch"),
+        Binding("up", "cursor_up", "Cursor up", show=False),
+        Binding("down", "cursor_down", "Cursor down", show=False),
+    ]
 
 
 class SessionItem(ListItem):
@@ -69,6 +78,35 @@ class PromptScreen(ModalScreen[Optional[str]]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class ConfirmAttachScreen(ModalScreen[bool]):
+    BINDINGS = [
+        ("enter", "confirm", "Attach"),
+        ("a", "confirm", "Attach"),
+        ("escape", "cancel", "Cancel"),
+        ("q", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, session_name: str) -> None:
+        super().__init__()
+        self._session_name = session_name
+
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm"):
+            yield Static("Attach to session", id="confirm-title")
+            yield Static(
+                f"You are about to attach to \"{self._session_name}\".",
+                id="confirm-body",
+            )
+            yield Static("Detach later with Ctrl-b d.", id="confirm-hint")
+            yield Static("Press Enter to attach, Esc to cancel.", id="confirm-footer")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
 
 
 class HelpScreen(ModalScreen[None]):
@@ -185,6 +223,32 @@ class TuimuxApp(App):
         text-style: bold;
     }
 
+    #confirm {
+        width: 70%;
+        max-width: 70;
+        padding: 2;
+        border: heavy #8bd5ff;
+        background: #0f141b;
+    }
+
+    #confirm-title {
+        margin-bottom: 1;
+        text-style: bold;
+    }
+
+    #confirm-body {
+        margin-bottom: 1;
+    }
+
+    #confirm-hint {
+        color: #9fb0c6;
+    }
+
+    #confirm-footer {
+        margin-top: 1;
+        color: #7b8aa1;
+    }
+
     #help {
         width: 80%;
         max-width: 90;
@@ -226,7 +290,7 @@ class TuimuxApp(App):
         with Container(id="content"):
             with Vertical(classes="panel", id="sessions-panel"):
                 yield Static("Sessions", classes="panel-title")
-                yield ListView(id="sessions")
+                yield SessionsListView(id="sessions")
             with Vertical(classes="panel", id="windows-panel"):
                 yield Static("Windows", classes="panel-title")
                 yield ListView(id="windows")
@@ -369,13 +433,22 @@ class TuimuxApp(App):
         if not session:
             self.set_status("Select a session to attach.", error=True)
             return
-        try:
-            if self._client.inside_tmux:
+        if self._client.inside_tmux:
+            try:
                 self._client.switch_client(session.name)
-            else:
+            except TmuxError as exc:
+                self.set_status(str(exc), error=True)
+            return
+
+        async def handle_result(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            try:
                 self._client.attach(session.name)
-        except TmuxError as exc:
-            self.set_status(str(exc), error=True)
+            except TmuxError as exc:
+                self.set_status(str(exc), error=True)
+
+        self.push_screen(ConfirmAttachScreen(session.name), callback=handle_result)
 
     def action_new_session(self) -> None:
         async def handle_result(result: Optional[str]) -> None:
