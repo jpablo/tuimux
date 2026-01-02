@@ -99,6 +99,10 @@ class HelpScreen(ModalScreen[None]):
         "- x: Kill selected session.\n"
         "- d: Kill selected window.\n"
         "- q: Quit.\n"
+        "\n"
+        "Learn more\n"
+        "- https://github.com/tmux/tmux/wiki\n"
+        "- https://man.openbsd.org/tmux\n"
     )
 
     def compose(self) -> ComposeResult:
