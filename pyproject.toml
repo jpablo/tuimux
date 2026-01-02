@@ -8,6 +8,11 @@ dependencies = [
   "textual>=0.50,<1.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+]
+
 [project.scripts]
 tuimux = "tuimux.app:main"
 
