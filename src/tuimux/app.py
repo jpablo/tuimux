@@ -67,17 +67,8 @@ class PromptScreen(ModalScreen[Optional[str]]):
 
 class TuimuxApp(App):
     CSS = """
-    :root {
-        --bg: #0b0f14;
-        --panel: #121923;
-        --panel-accent: #1b2533;
-        --accent: #8bd5ff;
-        --muted: #7b8aa1;
-        --warn: #ff9b85;
-    }
-
     Screen {
-        background: var(--bg);
+        background: #0b0f14;
         color: #e6eef9;
     }
 
@@ -89,48 +80,48 @@ class TuimuxApp(App):
         height: 1fr;
         layout: horizontal;
         padding: 1;
-        gap: 1;
     }
 
     .panel {
-        background: var(--panel);
-        border: tall var(--panel-accent);
+        background: #121923;
+        border: tall #1b2533;
         padding: 1;
         width: 1fr;
+        margin: 0 1;
     }
 
     .panel-title {
-        color: var(--muted);
+        color: #7b8aa1;
         text-style: bold;
         margin-bottom: 1;
     }
 
     ListView {
         background: transparent;
-        border: round var(--panel-accent);
+        border: round #1b2533;
         height: 1fr;
     }
 
     ListItem.--highlight {
-        background: var(--panel-accent);
+        background: #1b2533;
     }
 
     #status {
         height: 3;
         padding: 0 1;
         background: #0f141b;
-        color: var(--muted);
+        color: #7b8aa1;
     }
 
     #status.error {
-        color: var(--warn);
+        color: #ff9b85;
     }
 
     #prompt {
         width: 60%;
         max-width: 60;
         padding: 2;
-        border: heavy var(--accent);
+        border: heavy #8bd5ff;
         background: #0f141b;
     }
 
