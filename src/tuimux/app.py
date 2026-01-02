@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shutil
+import subprocess
 from typing import Callable, Optional
 
 from textual.app import App, ComposeResult
@@ -19,6 +21,14 @@ from tuimux.tmux import Session, TmuxClient, TmuxError, Window
 class SessionsListView(ListView):
     BINDINGS = [
         Binding("enter", "select_cursor", "Attach/Switch"),
+        Binding("up", "cursor_up", "Cursor up", show=False),
+        Binding("down", "cursor_down", "Cursor down", show=False),
+    ]
+
+
+class WindowsListView(ListView):
+    BINDINGS = [
+        Binding("enter", "select_cursor", "Select Window"),
         Binding("up", "cursor_up", "Cursor up", show=False),
         Binding("down", "cursor_down", "Cursor down", show=False),
     ]
@@ -56,9 +66,12 @@ class TuimuxCommandsProvider(Provider):
             ("Refresh", "Reload sessions and windows.", app.action_refresh),
             ("New session", "Create a new tmux session.", app.action_new_session),
             ("Rename session", "Rename the selected session.", app.action_rename_session),
+            ("Rename window", "Rename the selected window.", app.action_rename_window),
             ("New window", "Create a new window in the selected session.", app.action_new_window),
             ("Kill session", "Kill the selected session.", app.action_kill_session),
             ("Kill window", "Kill the selected window.", app.action_kill_window),
+            ("Copy mode", "Enter tmux copy mode (inside tmux).", app.action_copy_mode),
+            ("Copy selection", "Copy the tmux buffer to the clipboard.", app.action_copy_selection),
             ("Help", "Open the help screen.", app.action_help),
         ]
 
@@ -153,19 +166,33 @@ class HelpScreen(ModalScreen[None]):
         "- Session: A running tmux environment with its own windows.\n"
         "- Window: A tab inside a session; each window can hold panes.\n"
         "- Attached: A session currently connected to a tmux client.\n"
+        "- Pane: A split inside a window (vertical or horizontal).\n"
+        "- Prefix: The tmux leader key, default is Ctrl-b.\n"
+        "\n"
+        "Quick cheats\n"
+        "- Detach: Ctrl-b d\n"
+        "- New window: Ctrl-b c\n"
+        "- Split pane: Ctrl-b % (vertical), Ctrl-b \" (horizontal)\n"
+        "- Switch panes: Ctrl-b arrows\n"
+        "- Copy mode: Ctrl-b [  (then Enter to copy)\n"
+        "- Paste: Ctrl-b ]\n"
         "\n"
         "Navigation\n"
         "- Up/Down: Move through the list.\n"
         "- Tab: Switch focus between Sessions and Windows.\n"
         "- Enter: Attach/switch to the selected session.\n"
+        "- Enter (Windows list): Switch to the selected window.\n"
         "\n"
         "Actions\n"
         "- r: Refresh sessions/windows.\n"
         "- n: New session.\n"
         "- e: Rename selected session.\n"
+        "- w: Rename selected window.\n"
         "- c: New window in selected session.\n"
         "- x: Kill selected session.\n"
         "- d: Kill selected window.\n"
+        "- v: Enter copy mode (inside tmux).\n"
+        "- y: Copy tmux buffer to clipboard.\n"
         "- q: Quit.\n"
         "\n"
         "Learn more\n"
@@ -301,9 +328,12 @@ class TuimuxApp(App):
         ("n", "new_session", "New Session"),
         ("e", "rename_session", "Rename Session"),
         ("h", "help", "Help"),
+        ("w", "rename_window", "Rename Window"),
         ("c", "new_window", "New Window"),
         ("x", "kill_session", "Kill Session"),
         ("d", "kill_window", "Kill Window"),
+        ("v", "copy_mode", "Copy Mode"),
+        ("y", "copy_selection", "Copy Selection"),
     ]
 
     def __init__(self) -> None:
@@ -325,7 +355,7 @@ class TuimuxApp(App):
                 yield SessionsListView(id="sessions")
             with Vertical(classes="panel", id="windows-panel"):
                 yield Static("Windows", classes="panel-title")
-                yield ListView(id="windows")
+                yield WindowsListView(id="windows")
         yield Static("Ready.", id="status")
         yield Footer()
 
@@ -453,6 +483,8 @@ class TuimuxApp(App):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.list_view.id == "sessions":
             self.action_attach()
+        if event.list_view.id == "windows":
+            self.action_select_window()
 
     def action_refresh(self) -> None:
         self.refresh_data()
@@ -481,6 +513,68 @@ class TuimuxApp(App):
                 self.set_status(str(exc), error=True)
 
         self.push_screen(ConfirmAttachScreen(session.name), callback=handle_result)
+
+    def action_select_window(self) -> None:
+        window = self.get_selected_window()
+        if not window:
+            self.set_status("Select a window to switch to.", error=True)
+            return
+        try:
+            self._client.select_window(window.id)
+        except TmuxError as exc:
+            self.set_status(str(exc), error=True)
+            return
+        session = self.get_selected_session()
+        if session:
+            self.request_windows_load(session.name, force=True, immediate=True)
+
+    def action_copy_mode(self) -> None:
+        if not self._client.inside_tmux:
+            self.set_status("Copy mode is available when running tuimux inside tmux.")
+            return
+        try:
+            self._client.enter_copy_mode()
+        except TmuxError as exc:
+            self.set_status(str(exc), error=True)
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        clipboard_cmds = [
+            ("pbcopy", []),
+            ("wl-copy", []),
+            ("xclip", ["-selection", "clipboard"]),
+            ("xsel", ["--clipboard", "--input"]),
+        ]
+        for cmd, args in clipboard_cmds:
+            exe = shutil.which(cmd)
+            if not exe:
+                continue
+            try:
+                subprocess.run(
+                    [exe, *args],
+                    input=text,
+                    text=True,
+                    check=True,
+                )
+            except subprocess.CalledProcessError:
+                continue
+            self.set_status("Copied tmux buffer to clipboard.")
+            return
+        self.set_status(
+            "No clipboard tool found (pbcopy, wl-copy, xclip, xsel).", error=True
+        )
+
+    def action_copy_selection(self) -> None:
+        try:
+            buffer = self._client.show_buffer()
+        except TmuxError as exc:
+            self.set_status(str(exc), error=True)
+            return
+        if not buffer:
+            self.set_status(
+                "Tmux buffer is empty. Enter copy mode and copy a selection first."
+            )
+            return
+        self._copy_to_clipboard(buffer)
 
     def action_new_session(self) -> None:
         async def handle_result(result: Optional[str]) -> None:
@@ -545,6 +639,36 @@ class TuimuxApp(App):
 
         self.push_screen(
             PromptScreen("New window name", placeholder="shell", allow_empty=True),
+            callback=handle_result,
+        )
+
+    def action_rename_window(self) -> None:
+        window = self.get_selected_window()
+        if not window:
+            self.set_status("Select a window to rename.", error=True)
+            return
+
+        async def handle_result(result: Optional[str]) -> None:
+            if not result:
+                return
+            if result == window.name:
+                self.set_status("Window name unchanged.")
+                return
+            try:
+                self._client.rename_window(window.id, result)
+            except TmuxError as exc:
+                self.set_status(str(exc), error=True)
+                return
+            session = self.get_selected_session()
+            if session:
+                self.request_windows_load(session.name, force=True, immediate=True)
+
+        self.push_screen(
+            PromptScreen(
+                "Rename window",
+                placeholder="new-name",
+                value=window.name,
+            ),
             callback=handle_result,
         )
 

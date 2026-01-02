@@ -141,6 +141,18 @@ class TmuxClient:
     def rename_session(self, name: str, new_name: str) -> None:
         self._run(["rename-session", "-t", name, new_name])
 
+    def rename_window(self, window_id: str, new_name: str) -> None:
+        self._run(["rename-window", "-t", window_id, new_name])
+
+    def select_window(self, window_id: str) -> None:
+        self._run(["select-window", "-t", window_id])
+
+    def enter_copy_mode(self) -> None:
+        self._run(["copy-mode"])
+
+    def show_buffer(self) -> str:
+        return self._run(["show-buffer"])
+
     def attach(self, session_name: str) -> None:
         self._run(["attach", "-t", session_name])
 

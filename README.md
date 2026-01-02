@@ -27,7 +27,10 @@ tuimux
 - `n` new session
 - `e` rename selected session
 - `h` help
+- `w` rename selected window
 - `c` new window in the selected session
 - `x` kill selected session
 - `d` kill selected window
+- `v` enter copy mode (inside tmux)
+- `y` copy tmux buffer to clipboard
 - `q` quit
