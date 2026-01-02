@@ -88,6 +88,7 @@ class TmuxClient:
                     attached=attached == "1",
                 )
             )
+        sessions.sort(key=lambda session: session.name)
         return sessions
 
     def list_windows(self, session_name: str) -> list[Window]:
