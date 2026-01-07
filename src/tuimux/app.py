@@ -187,7 +187,7 @@ class HelpScreen(ModalScreen[None]):
         "Actions\n"
         "- r: Refresh sessions/windows.\n"
         "- n: New session.\n"
-        "- e: Rename selected session.\n"
+        "- e: Rename selected session or window.\n"
         "- w: Rename selected window.\n"
         "- c: New window in selected session.\n"
         "- x: Kill selected session.\n"
@@ -378,7 +378,7 @@ class TuimuxApp(App):
         ("r", "refresh", "Refresh"),
         ("enter", "attach", "Attach/Switch"),
         ("n", "new_session", "New Session"),
-        ("e", "rename_session", "Rename Session"),
+        ("e", "rename", "Rename"),
         ("h", "help", "Help"),
         ("w", "rename_window", "Rename Window"),
         ("c", "new_window", "New Window"),
@@ -674,6 +674,14 @@ class TuimuxApp(App):
             PromptScreen("New session name", placeholder="work"),
             callback=handle_result,
         )
+
+    def action_rename(self) -> None:
+        """Rename the selected session or window based on focused panel."""
+        windows_view = self.query_one("#windows", ListView)
+        if windows_view.has_focus:
+            self.action_rename_window()
+        else:
+            self.action_rename_session()
 
     def action_rename_session(self) -> None:
         session = self.get_selected_session()
