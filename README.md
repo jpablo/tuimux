@@ -15,8 +15,7 @@ python -m pip install "tuimux @ git+https://github.com/jpablo/tuimux.git" && tui
 Or with `uv`:
 
 ```bash
-uv pip install "tuimux @ git+https://github.com/jpablo/tuimux.git" && tuimux
-```
+uv tool install "tuimux @ git+https://github.com/jpablo/tuimux.git" && tuimux```
 
 ## Development
 
