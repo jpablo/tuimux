@@ -40,7 +40,7 @@ tuimux
 - `r` refresh
 - `Enter` attach/switch to the selected session
 - `n` new session
-- `e` rename selected session
+- `e` rename selected session or window
 - `h` help
 - `w` rename selected window
 - `c` new window in the selected session

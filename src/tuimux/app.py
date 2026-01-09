@@ -676,12 +676,12 @@ class TuimuxApp(App):
         )
 
     def action_rename(self) -> None:
-        """Rename the selected session or window based on focused panel."""
+        """Rename the selected session or window based on the active panel."""
         windows_view = self.query_one("#windows", ListView)
-        if windows_view.has_focus:
+        if windows_view.has_focus_within:
             self.action_rename_window()
-        else:
-            self.action_rename_session()
+            return
+        self.action_rename_session()
 
     def action_rename_session(self) -> None:
         session = self.get_selected_session()
